@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Three.js LIDAR Terrain Viewer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Inter', sans-serif; background-color: #111827; }
+        #container { width: 100vw; height: 100vh; display: block; }
+        #ui-panel { position: absolute; top: 20px; left: 20px; background-color: rgba(17, 24, 39, 0.8); backdrop-filter: blur(10px); color: white; padding: 20px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); max-width: 320px; box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37); }
+        #loader { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-size: 1.2rem; display: none; flex-direction: column; align-items: center; gap: 1rem; }
+        .spinner { border: 4px solid rgba(255, 255, 255, 0.2); border-left-color: #3b82f6; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        input[type="range"] { -webkit-appearance: none; appearance: none; width: 100%; height: 8px; background: #4b5563; border-radius: 5px; outline: none; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 20px; height: 20px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 2px solid white; }
+        input[type="range"]::-moz-range-thumb { width: 20px; height: 20px; background: #3b82f6; cursor: pointer; border-radius: 50%; border: 2px solid white; }
+        select, input[type="number"] { background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e"); background-position: right 0.5rem center; background-repeat: no-repeat; background-size: 1.5em 1.5em; -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+        input[type="number"] { background-image: none; }
+    </style>
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+</head>
+<body>
+
+    <canvas id="container"></canvas>
+
+    <div id="ui-panel">
+        <h1 class="text-xl font-bold mb-2">LIDAR Terrain Controls</h1>
+        <p class="text-sm text-gray-400 mb-4">Load your `terrain_data.json` file to begin.</p>
+        
+        <div class="mb-4">
+            <label for="jsonFile" class="block mb-2 text-sm font-medium text-gray-300">Load Terrain Data</label>
+            <input type="file" id="jsonFile" accept=".json" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-500 file:text-white hover:file:bg-blue-600 cursor-pointer">
+        </div>
+
+        <div id="controls" class="hidden space-y-4">
+            <div>
+                <label for="verticalExaggeration" class="block mb-2 text-sm font-medium text-gray-300">Vertical Exaggeration: <span id="veValue">1.0</span>x</label>
+                <input type="range" id="verticalExaggeration" min="0.1" max="10" step="0.1" value="1.0" class="w-full">
+            </div>
+             <div>
+                <label for="colorScheme" class="block mb-2 text-sm font-medium text-gray-300">Color Scheme</label>
+                <select id="colorScheme" class="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5">
+                    <option value="topographic" selected>Topographic</option>
+                    <option value="earth">Earth</option>
+                    <option value="grayscale">Grayscale</option>
+                    <option value="arctic">Arctic</option>
+                    <option value="volcanic">Volcanic</option>
+                    <option value="desert">Desert</option>
+                </select>
+            </div>
+            <div class="pt-2 border-t border-gray-700 space-y-4">
+                 <div class="flex items-center">
+                    <input id="contourToggle" type="checkbox" checked class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
+                    <label for="contourToggle" class="ml-2 text-sm font-medium text-gray-300">Show Contours</label>
+                </div>
+                <div>
+                    <label for="contourInterval" class="block mb-2 text-sm font-medium text-gray-300">Contour Interval (m)</label>
+                    <input type="number" id="contourInterval" value="1" min="1" step="1" class="w-full bg-gray-800 border border-gray-600 text-white text-sm rounded-lg p-2.5">
+                </div>
+            </div>
+            <div class="flex items-center pt-2 border-t border-gray-700">
+                <input id="wireframeToggle" type="checkbox" class="w-4 h-4 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500">
+                <label for="wireframeToggle" class="ml-2 text-sm font-medium text-gray-300">Show Wireframe</label>
+            </div>
+            <div class="text-sm text-gray-400 pt-2 border-t border-gray-700">
+                <p>Min Elevation: <span id="minElevation" class="font-semibold text-gray-200">N/A</span></p>
+                <p>Max Elevation: <span id="maxElevation" class="font-semibold text-gray-200">N/A</span></p>
+            </div>
+        </div>
+    </div>
+
+    <div id="loader"><div class="spinner"></div><span>Processing Terrain...</span></div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const ui = {
+            fileInput: document.getElementById('jsonFile'),
+            loader: document.getElementById('loader'),
+            controlsPanel: document.getElementById('controls'),
+            veSlider: document.getElementById('verticalExaggeration'),
+            veValueLabel: document.getElementById('veValue'),
+            minElevationLabel: document.getElementById('minElevation'),
+            maxElevationLabel: document.getElementById('maxElevation'),
+            colorSchemeSelect: document.getElementById('colorScheme'),
+            wireframeToggle: document.getElementById('wireframeToggle'),
+            contourToggle: document.getElementById('contourToggle'),
+            contourInterval: document.getElementById('contourInterval'),
+        };
+
+        let scene, camera, renderer, controls, terrainGroup, terrainMesh, contoursGroup, rawContourData, directionalLight;
+
+        const colorSchemes = {
+            topographic: { ramp: [new THREE.Color(0x0077be), new THREE.Color(0x52b531), new THREE.Color(0xfde945), new THREE.Color(0xc13723)] },
+            earth: { ramp: [new THREE.Color(0x2c5234), new THREE.Color(0x9c7e4f), new THREE.Color(0xd4c2ad), new THREE.Color(0xffffff)] },
+            grayscale: { ramp: [new THREE.Color(0x101010), new THREE.Color(0x606060), new THREE.Color(0xc0c0c0), new THREE.Color(0xffffff)] },
+            arctic: { ramp: [new THREE.Color(0x2E4A62), new THREE.Color(0x69A2B0), new THREE.Color(0xDDEBF0), new THREE.Color(0xffffff)] },
+            volcanic: { ramp: [new THREE.Color(0x1A090D), new THREE.Color(0x5C1F1E), new THREE.Color(0xE04E1F), new THREE.Color(0xF2C263)] },
+            desert: { ramp: [new THREE.Color(0x8C6B4F), new THREE.Color(0xD8A86A), new THREE.Color(0xF7DCB4), new THREE.Color(0xFFF2E1)] }
+        };
+
+        function init() {
+            const canvas = document.getElementById('container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x111827);
+
+            camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 20000);
+            camera.position.set(600, 600, 600);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, canvas: canvas });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.target.set(0,0,0);
+
+            directionalLight = new THREE.DirectionalLight(0xffffff, 1.0);
+            directionalLight.position.set(400, 500, 300);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.camera.left   = -5000;
+            directionalLight.shadow.camera.right  =  5000;
+            directionalLight.shadow.camera.top    =  5000;
+            directionalLight.shadow.camera.bottom = -5000;
+            directionalLight.shadow.mapSize.width = 4096;
+            directionalLight.shadow.mapSize.height = 4096;
+            scene.add(directionalLight);
+
+            const hemiLight = new THREE.HemisphereLight(0x88aaff, 0x444466, 0.5);
+            scene.add(hemiLight);
+
+            window.addEventListener('resize', onWindowResize);
+            ui.fileInput.addEventListener('change', onFileSelect);
+            ui.veSlider.addEventListener('input', onVeSliderChange);
+            ui.colorSchemeSelect.addEventListener('change', onColorSchemeChange);
+            ui.wireframeToggle.addEventListener('change', onWireframeToggle);
+            ui.contourToggle.addEventListener('change', onContourToggle);
+            ui.contourInterval.addEventListener('input', onContourIntervalChange);
+
+            animate();
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function onFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    showLoader(true);
+                    setTimeout(() => {
+                        createSceneContent(data);
+                        showLoader(false);
+                    }, 50);
+                } catch (error) {
+                    alert('Error parsing JSON file.');
+                    console.error(error);
+                    showLoader(false);
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        function onVeSliderChange() {
+            const value = parseFloat(ui.veSlider.value);
+            ui.veValueLabel.textContent = value.toFixed(1);
+            if (terrainGroup) {
+                terrainGroup.scale.y = value;
+            }
+        }
+
+        function onColorSchemeChange() {
+            if (terrainMesh && terrainMesh.material.userData.shader) {
+                const scheme = colorSchemes[ui.colorSchemeSelect.value];
+                terrainMesh.material.userData.shader.uniforms.c1.value = scheme.ramp[0];
+                terrainMesh.material.userData.shader.uniforms.c2.value = scheme.ramp[1];
+                terrainMesh.material.userData.shader.uniforms.c3.value = scheme.ramp[2];
+                terrainMesh.material.userData.shader.uniforms.c4.value = scheme.ramp[3];
+            }
+        }
+
+        function onWireframeToggle() {
+            if (terrainMesh) {
+                terrainMesh.material.wireframe = ui.wireframeToggle.checked;
+            }
+        }
+
+        function onContourToggle() {
+            if (contoursGroup) contoursGroup.visible = ui.contourToggle.checked;
+        }
+
+        function onContourIntervalChange() {
+            drawContours();
+        }
+
+        function showLoader(visible) {
+            ui.loader.style.display = visible ? 'flex' : 'none';
+        }
+
+        function createSceneContent(data) {
+            if (terrainGroup) {
+                scene.remove(terrainGroup);
+                if (terrainMesh) {
+                    terrainMesh.geometry.dispose();
+                    terrainMesh.material.dispose();
+                }
+            }
+
+            terrainGroup = new THREE.Group();
+            scene.add(terrainGroup);
+
+            createTerrainMesh(data);
+            
+            rawContourData = data.contours || [];
+            contoursGroup = new THREE.Group();
+            terrainGroup.add(contoursGroup);
+            drawContours();
+            onContourToggle();
+            onVeSliderChange();
+
+            ui.minElevationLabel.textContent = `${data.minElevation.toFixed(2)}m`;
+            ui.maxElevationLabel.textContent = `${data.maxElevation.toFixed(2)}m`;
+            ui.controlsPanel.classList.remove('hidden');
+            
+            const box = new THREE.Box3().setFromObject(terrainMesh);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            
+            camera.position.set(center.x + size.x * 1.2, center.y + size.y * 1.2, center.z + size.z * 1.2);
+            controls.target.copy(center);
+        }
+
+        function createTerrainMesh(data) {
+            const { width, height, vertices, minElevation, maxElevation } = data;
+            
+            // Use BufferGeometry directly for performance and correct mapping
+            const geometry = new THREE.BufferGeometry();
+            
+            // Create vertices array in the correct (x, y_up, z) format for three.js
+            const threeVertices = new Float32Array(width * height * 3);
+            const colors = new Float32Array(width * height * 3);
+            
+            for (let i = 0; i < (width * height); i++) {
+                const x = vertices[i*3];
+                const z_northing = vertices[i*3+1];
+                const y_elevation = vertices[i*3+2];
+
+                threeVertices[i*3]   = x;
+                threeVertices[i*3+1] = y_elevation;
+                threeVertices[i*3+2] = -z_northing; // Negate to orient correctly
+            }
+            geometry.setAttribute('position', new THREE.BufferAttribute(threeVertices, 3));
+
+            // Create index for the geometry
+            const indices = [];
+            for (let i = 0; i < height - 1; i++) {
+                for (let j = 0; j < width - 1; j++) {
+                    const a = i * width + j;
+                    const b = i * width + (j + 1);
+                    const c = (i + 1) * width + j;
+                    const d = (i + 1) * width + (j + 1);
+                    indices.push(a, c, b);
+                    indices.push(b, c, d);
+                }
+            }
+            geometry.setIndex(indices);
+            geometry.computeVertexNormals();
+            
+            const scheme = colorSchemes[ui.colorSchemeSelect.value];
+            const material = new THREE.MeshStandardMaterial({
+                flatShading: false,
+                side: THREE.DoubleSide,
+                wireframe: ui.wireframeToggle.checked,
+                vertexColors: true // Use vertex colors for the ramp
+            });
+            
+            // Set vertex colors based on elevation
+            const positionAttribute = geometry.getAttribute('position');
+            const colorsAttribute = new THREE.BufferAttribute(new Float32Array(positionAttribute.count * 3), 3);
+            const tempColor = new THREE.Color();
+            
+            for (let i = 0; i < positionAttribute.count; i++) {
+                const elevation = positionAttribute.getY(i);
+                const heightT = THREE.MathUtils.clamp((elevation - minElevation) / (maxElevation - minElevation), 0.0, 1.0);
+                
+                let ramp;
+                if (heightT < 0.33) {
+                    ramp = tempColor.clone().lerpColors(scheme.ramp[0], scheme.ramp[1], heightT / 0.33);
+                } else if (heightT < 0.66) {
+                    ramp = tempColor.clone().lerpColors(scheme.ramp[1], scheme.ramp[2], (heightT - 0.33) / 0.33);
+                } else {
+                    ramp = tempColor.clone().lerpColors(scheme.ramp[2], scheme.ramp[3], (heightT - 0.66) / 0.34);
+                }
+                colorsAttribute.setXYZ(i, ramp.r, ramp.g, ramp.b);
+            }
+            geometry.setAttribute('color', colorsAttribute);
+
+
+            terrainMesh = new THREE.Mesh(geometry, material);
+            terrainMesh.receiveShadow = true;
+            terrainMesh.castShadow = true;
+            terrainGroup.add(terrainMesh);
+        }
+
+        function drawContours() {
+            if (!contoursGroup || !rawContourData) return;
+
+            while (contoursGroup.children.length) {
+                contoursGroup.remove(contoursGroup.children[0]);
+            }
+
+            const interval = parseInt(ui.contourInterval.value, 10) || 1;
+            const material = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 1 });
+
+            rawContourData.forEach(contour => {
+                if (Math.abs(contour.level % interval) < 0.01 || Math.abs(contour.level % interval - interval) < 0.01) {
+                    const geometry = new THREE.BufferGeometry();
+                    const originalVerts = new Float32Array(contour.vertices);
+                    const swizzledVerts = new Float32Array(originalVerts.length);
+
+                    for (let i = 0; i < originalVerts.length; i += 3) {
+                        swizzledVerts[i]     = originalVerts[i];
+                        swizzledVerts[i + 1] = originalVerts[i + 2];
+                        swizzledVerts[i + 2] = -originalVerts[i + 1];
+                    }
+                    
+                    geometry.setAttribute('position', new THREE.BufferAttribute(swizzledVerts, 3));
+                    const line = new THREE.Line(geometry, material);
+                    contoursGroup.add(line);
+                }
+            });
+        }
+
+        init();
+    </script>
+</body>
+</html>
