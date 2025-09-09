@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Terrain Visualization - macOS Friendly</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            max-width: 300px;
+        }
+        
+        .control-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        input[type="range"] {
+            width: 100%;
+            margin-bottom: 5px;
+        }
+        
+        .value-display {
+            font-size: 14px;
+            color: #666;
+            text-align: center;
+        }
+        
+        button {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin: 5px;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+        }
+        
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            z-index: 200;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="loading">🌍 Loading Terrain Data...</div>
+        
+        <div id="controls">
+            <h3 style="margin-top: 0; color: #333;">🏔️ Terrain Controls</h3>
+            
+            <div class="control-group">
+                <label for="exaggeration">Vertical Exaggeration:</label>
+                <input type="range" id="exaggeration" min="0.5" max="10" step="0.1" value="2">
+                <div class="value-display" id="exag-value">2.0x</div>
+            </div>
+            
+            <div class="control-group">
+                <label for="wireframe">Display Mode:</label>
+                <button onclick="toggleWireframe()">Toggle Wireframe</button>
+                <button onclick="toggleContours()">Toggle Contours</button>
+            </div>
+            
+            <div class="control-group">
+                <label>View Presets:</label>
+                <button onclick="setView('iso')">Isometric</button>
+                <button onclick="setView('top')">Top Down</button>
+                <button onclick="setView('side')">Side View</button>
+            </div>
+            
+            <div class="control-group">
+                <button onclick="resetView()">🔄 Reset View</button>
+                <button onclick="exportImage()">📷 Save Image</button>
+            </div>
+        </div>
+        
+        <div id="info">
+            <strong>🎮 Controls:</strong><br>
+            • Mouse: Rotate view<br>
+            • Scroll: Zoom in/out<br>
+            • Right-click: Pan<br>
+            • ⚠️ No Shift+Click crashes!
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Global variables
+        let scene, camera, renderer, terrain, contours;
+        let originalGeometry;
+        let isWireframe = false;
+        let showContours = true;
+        
+        // Initialize the visualization
+        init();
+        animate();
+        
+        function init() {
+            // Create scene
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x87CEEB); // Sky blue
+            
+            // Create camera
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(50, 50, 50);
+            
+            // Create renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            document.getElementById('container').appendChild(renderer.domElement);
+            
+            // Add lights
+            addLights();
+            
+            // Generate terrain (demo data - replace with your Lidar data)
+            generateTerrainData();
+            
+            // Add controls
+            addControls();
+            
+            // Hide loading
+            document.getElementById('loading').style.display = 'none';
+        }
+        
+        function addLights() {
+            // Ambient light
+            const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+            scene.add(ambientLight);
+            
+            // Directional light (sun)
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(100, 100, 50);
+            directionalLight.castShadow = true;
+            directionalLight.shadow.mapSize.width = 2048;
+            directionalLight.shadow.mapSize.height = 2048;
+            scene.add(directionalLight);
+        }
+        
+        function generateTerrainData() {
+            // Demo terrain generation (replace with your Lidar data)
+            const width = 100;
+            const height = 100;
+            const geometry = new THREE.PlaneGeometry(200, 200, width - 1, height - 1);
+            
+            // Generate height map (replace this with your DEM data)
+            const vertices = geometry.attributes.position.array;
+            for (let i = 0; i < vertices.length; i += 3) {
+                const x = vertices[i];
+                const y = vertices[i + 1];
+                // Simple terrain function (replace with your elevation data)
+                vertices[i + 2] = Math.sin(x * 0.1) * Math.cos(y * 0.1) * 20 + 
+                                 Math.sin(x * 0.05) * 15 + 
+                                 Math.random() * 5;
+            }
+            
+            geometry.computeVertexNormals();
+            originalGeometry = geometry.clone();
+            
+            // Create terrain material
+            const material = new THREE.MeshLambertMaterial({
+                vertexColors: true,
+                side: THREE.DoubleSide
+            });
+            
+            // Add colors based on elevation
+            addTerrainColors(geometry);
+            
+            // Create terrain mesh
+            terrain = new THREE.Mesh(geometry, material);
+            terrain.rotation.x = -Math.PI / 2;
+            terrain.receiveShadow = true;
+            scene.add(terrain);
+            
+            // Generate contour lines
+            generateContours();
+        }
+        
+        function addTerrainColors(geometry) {
+            const colors = [];
+            const vertices = geometry.attributes.position.array;
+            
+            // Find min/max elevation
+            let minZ = Infinity, maxZ = -Infinity;
+            for (let i = 2; i < vertices.length; i += 3) {
+                minZ = Math.min(minZ, vertices[i]);
+                maxZ = Math.max(maxZ, vertices[i]);
+            }
+            
+            // Assign colors based on elevation
+            for (let i = 2; i < vertices.length; i += 3) {
+                const elevation = vertices[i];
+                const t = (elevation - minZ) / (maxZ - minZ);
+                
+                // Terrain color scheme
+                if (t < 0.3) {
+                    colors.push(0.2, 0.4, 0.8); // Water blue
+                } else if (t < 0.6) {
+                    colors.push(0.2, 0.8, 0.2); // Grass green
+                } else if (t < 0.8) {
+                    colors.push(0.6, 0.4, 0.2); // Earth brown
+                } else {
+                    colors.push(0.9, 0.9, 0.9); // Snow white
+                }
+            }
+            
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        }
+        
+        function generateContours() {
+            // Simple contour line generation (replace with your contour data)
+            const contourGroup = new THREE.Group();
+            
+            for (let level = -10; level <= 30; level += 5) {
+                const points = [];
+                
+                // Generate contour points (simplified - replace with your contour algorithm)
+                for (let angle = 0; angle < Math.PI * 2; angle += 0.1) {
+                    const radius = 50 + Math.sin(angle * 3) * 20;
+                    points.push(new THREE.Vector3(
+                        Math.cos(angle) * radius,
+                        level,
+                        Math.sin(angle) * radius
+                    ));
+                }
+                
+                const contourGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                const contourMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0x000000, 
+                    linewidth: 2 
+                });
+                
+                const contourLine = new THREE.Line(contourGeometry, contourMaterial);
+                contourGroup.add(contourLine);
+            }
+            
+            contours = contourGroup;
+            scene.add(contours);
+        }
+        
+        function addControls() {
+            // Mouse controls
+            let mouseDown = false;
+            let mouseX = 0;
+            let mouseY = 0;
+            
+            renderer.domElement.addEventListener('mousedown', (event) => {
+                mouseDown = true;
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            });
+            
+            renderer.domElement.addEventListener('mouseup', () => {
+                mouseDown = false;
+            });
+            
+            renderer.domElement.addEventListener('mousemove', (event) => {
+                if (!mouseDown) return;
+                
+                const deltaX = event.clientX - mouseX;
+                const deltaY = event.clientY - mouseY;
+                
+                if (event.buttons === 1) { // Left click - rotate
+                    camera.position.x = camera.position.x * Math.cos(deltaX * 0.01) - camera.position.z * Math.sin(deltaX * 0.01);
+                    camera.position.z = camera.position.x * Math.sin(deltaX * 0.01) + camera.position.z * Math.cos(deltaX * 0.01);
+                    camera.position.y += deltaY * 0.5;
+                }
+                
+                camera.lookAt(0, 0, 0);
+                
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            });
+            
+            // Scroll zoom
+            renderer.domElement.addEventListener('wheel', (event) => {
+                const factor = event.deltaY > 0 ? 1.1 : 0.9;
+                camera.position.multiplyScalar(factor);
+                camera.lookAt(0, 0, 0);
+            });
+            
+            // Exaggeration slider
+            document.getElementById('exaggeration').addEventListener('input', (event) => {
+                updateVerticalExaggeration(parseFloat(event.target.value));
+            });
+        }
+        
+        function updateVerticalExaggeration(factor) {
+            document.getElementById('exag-value').textContent = factor.toFixed(1) + 'x';
+            
+            const geometry = terrain.geometry;
+            const originalVertices = originalGeometry.attributes.position.array;
+            const vertices = geometry.attributes.position.array;
+            
+            // Apply exaggeration to Z coordinates
+            for (let i = 2; i < vertices.length; i += 3) {
+                vertices[i] = originalVertices[i] * factor;
+            }
+            
+            geometry.attributes.position.needsUpdate = true;
+            geometry.computeVertexNormals();
+        }
+        
+        function toggleWireframe() {
+            isWireframe = !isWireframe;
+            terrain.material.wireframe = isWireframe;
+        }
+        
+        function toggleContours() {
+            showContours = !showContours;
+            contours.visible = showContours;
+        }
+        
+        function setView(viewType) {
+            switch(viewType) {
+                case 'iso':
+                    camera.position.set(100, 80, 100);
+                    break;
+                case 'top':
+                    camera.position.set(0, 200, 0);
+                    break;
+                case 'side':
+                    camera.position.set(200, 50, 0);
+                    break;
+            }
+            camera.lookAt(0, 0, 0);
+        }
+        
+        function resetView() {
+            camera.position.set(50, 50, 50);
+            camera.lookAt(0, 0, 0);
+            updateVerticalExaggeration(2.0);
+            document.getElementById('exaggeration').value = 2.0;
+        }
+        
+        function exportImage() {
+            const link = document.createElement('a');
+            link.download = 'terrain_visualization.png';
+            link.href = renderer.domElement.toDataURL();
+            link.click();
+        }
+        
+        function animate() {
+            requestAnimationFrame(animate);
+            renderer.render(scene, camera);
+        }
+        
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
