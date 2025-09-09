@@ -22,8 +22,8 @@ import gc
 class TerrainConfig:
     """Configuration for LIDAR data processing."""
     # --- Paths to your local data ---
-    TILE_INDEX_PATH: Path = Path("../OntarioDTM_LidarDerived_TileIndex/OntarioDTM_LidarDerived_TileIndex.shp")
-    TILE_DIRECTORY: Path = Path("../HuronGeorgianBay-DTM-29")
+    TILE_INDEX_PATH: Path = Path("../Terrain_Data/OntarioDTM_LidarDerived_TileIndex/OntarioDTM_LidarDerived_TileIndex.shp")
+    TILE_DIRECTORY: Path = Path("../Terrain_Data/HuronGeorgianBay-DTM-29")
 
     # --- Target Location ---
     TARGET_LONGITUDE: float = -79.90776
@@ -36,7 +36,7 @@ class TerrainConfig:
     CONTOUR_INTERVAL: float = 1.0
 
     # --- Output Settings ---
-    OUTPUT_JSON_PATH: Path = Path("./terrain_data.json")
+    OUTPUT_JSON_PATH: Path = Path("./centered_terrain_data.json")
 
 # --- Main Processor Class ---
 class LidarProcessor:
@@ -103,8 +103,19 @@ class LidarProcessor:
         xs, ys = rt.xy(transform, rows_mg, cols_mg, offset='center')
         zs = dem_sampled
 
+        # Calculate center point and store it for GPS conversion
         x_center, y_center = np.mean(xs), np.mean(ys)
         xs_centered, ys_centered = np.array(xs) - x_center, np.array(ys) - y_center
+        
+        # Store the transform and center for coordinate conversion
+        terrain_bounds = {
+            "minX": float(np.min(xs)),
+            "maxX": float(np.max(xs)),
+            "minY": float(np.min(ys)), 
+            "maxY": float(np.max(ys)),
+            "centerX": float(x_center),
+            "centerY": float(y_center)
+        }
         
         vertices = np.vstack((xs_centered.flatten(), ys_centered.flatten(), zs.flatten())).T.flatten().tolist()
         
@@ -145,7 +156,9 @@ class LidarProcessor:
             "vertices": vertices,
             "minElevation": float(min_z),
             "maxElevation": float(max_z),
-            "contours": contours_data
+            "contours": contours_data,
+            "terrainBounds": terrain_bounds,  # NEW: Include terrain bounds and center
+            "coordinateSystem": "centered_utm_zone_17n"  # NEW: Document coordinate system
         }
 
     def save_to_json(self, data: Dict[str, Any]):
